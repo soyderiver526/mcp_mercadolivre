@@ -2,6 +2,19 @@
 
 Este guia assume que você **nunca** usou MCP nem a API do Mercado Livre. Siga os passos na ordem e, ao final, você terá um assistente de IA (Claude, Cursor ou Kimi Code) conversando com a sua conta de vendedor do Mercado Livre.
 
+## Caminho rápido (npm)
+
+Se o pacote estiver publicado no npm, você não precisa clonar nem compilar nada:
+
+```bash
+mkdir -p ~/mcp-meli && cd ~/mcp-meli
+npx -y -p @gustavohssouza/mcp-mercadolivre mcp-mercadolivre-auth
+```
+
+Depois configure o cliente MCP com `"command": "npx"` e `"args": ["-y", "@gustavohssouza/mcp-mercadolivre"]` — o JSON completo está no [README](../README.md#via-npm-recomendado--sem-clonar-o-repositório). Você ainda precisa criar o aplicativo no portal de devs ([Passo 2](#passo-2--criar-o-aplicativo-no-portal-de-desenvolvedores-do-mercado-livre)) antes de autenticar.
+
+O guia completo abaixo usa a instalação a partir do código-fonte (clone), que também serve para quem quer contribuir.
+
 ---
 
 ## Pré-requisitos

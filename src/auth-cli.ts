@@ -1,3 +1,4 @@
+#!/usr/bin/env node
 import http from "node:http";
 import { exec } from "node:child_process";
 import { buildAuthUrl, exchangeCodeForTokens } from "./auth.js";

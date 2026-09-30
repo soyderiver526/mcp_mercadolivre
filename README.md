@@ -16,6 +16,42 @@ Projeto **open source (MIT)** — contribuições são bem-vindas! Veja [Contrib
 
 > 🔰 **Nunca usou MCP ou a API do Mercado Livre?** Siga o [guia de instalação detalhado para iniciantes](docs/instalacao.md) — passo a passo com prints do que esperar em cada etapa.
 
+### Via npm (recomendado — sem clonar o repositório)
+
+1. Crie o aplicativo no [portal de desenvolvedores do Mercado Livre](https://developers.mercadolivre.com.br) (detalhes no [guia de instalação](docs/instalacao.md#passo-2--criar-o-aplicativo-no-portal-de-desenvolvedores-do-mercado-livre)) e anote o Client ID e o Client Secret.
+2. Escolha uma pasta fixa para os tokens (ex. `~/mcp-meli`), entre nela e autentique:
+   ```bash
+   mkdir -p ~/mcp-meli && cd ~/mcp-meli
+   npx -y -p @gustavohssouza/mcp-mercadolivre mcp-mercadolivre-auth
+   ```
+   O navegador abre, você autoriza, e o `tokens.json` é salvo nessa pasta. Como clientes MCP podem iniciar o servidor com outro diretório de trabalho, o passo seguinte aponta `ML_TOKENS_FILE` para esse arquivo.
+3. Configure o cliente MCP (Claude Desktop, Cursor, Kimi Code):
+   ```json
+   {
+     "mcpServers": {
+       "mercadolivre": {
+         "command": "npx",
+         "args": ["-y", "@gustavohssouza/mcp-mercadolivre"],
+         "env": {
+           "ML_CLIENT_ID": "seu_client_id",
+           "ML_CLIENT_SECRET": "seu_client_secret",
+           "ML_SITE_ID": "MLB",
+           "ML_TOKENS_FILE": "/caminho/absoluto/para/mcp-meli/tokens.json"
+         }
+       }
+     }
+   }
+   ```
+
+### Alternativa: instalação a partir do código-fonte
+
+Para contribuir ou modificar o código:
+
+```bash
+git clone https://github.com/SEU_USUARIO/mcp_mercadolivre
+cd mcp_mercadolivre
+```
+
 ### Pré-requisitos
 
 - Node.js >= 18 (ou Docker + Docker Compose)

@@ -7,13 +7,20 @@ export const rootDir = path.resolve(
   ".."
 );
 
+// .env is loaded from the current working directory first (npx / MCP client
+// launches), falling back to the package directory (local clone). Missing
+// .env is fine when env vars are provided directly by the MCP client config.
 function loadDotEnv(): void {
-  let content: string;
-  try {
-    content = fs.readFileSync(path.join(rootDir, ".env"), "utf8");
-  } catch {
-    return;
+  let content: string | undefined;
+  for (const dir of [process.cwd(), rootDir]) {
+    try {
+      content = fs.readFileSync(path.join(dir, ".env"), "utf8");
+      break;
+    } catch {
+      // try next location
+    }
   }
+  if (content === undefined) return;
   for (const line of content.split("\n")) {
     const trimmed = line.trim();
     if (!trimmed || trimmed.startsWith("#")) continue;
@@ -33,13 +40,23 @@ function loadDotEnv(): void {
 
 loadDotEnv();
 
+// Tokens live in the cwd (npx: where you ran the auth command; overridable
+// via ML_TOKENS_FILE). A pre-existing tokens.json in the package directory
+// keeps local-clone setups working when launched from another directory.
+function resolveTokensFile(): string {
+  if (process.env.ML_TOKENS_FILE) return process.env.ML_TOKENS_FILE;
+  const cwdFile = path.join(process.cwd(), "tokens.json");
+  const pkgFile = path.join(rootDir, "tokens.json");
+  if (fs.existsSync(pkgFile) && !fs.existsSync(cwdFile)) return pkgFile;
+  return cwdFile;
+}
+
 export const config = {
   clientId: process.env.ML_CLIENT_ID ?? "",
   clientSecret: process.env.ML_CLIENT_SECRET ?? "",
   siteId: process.env.ML_SITE_ID ?? "MLB",
   redirectUri: process.env.ML_REDIRECT_URI ?? "http://localhost:3333/callback",
-  tokensFile:
-    process.env.ML_TOKENS_FILE ?? path.join(rootDir, "tokens.json"),
+  tokensFile: resolveTokensFile(),
   readOnly: ["true", "1"].includes(
     (process.env.ML_READ_ONLY ?? "").toLowerCase()
   ),

@@ -1,14 +1,45 @@
 {
-  "name": "mcp-mercadolivre",
+  "name": "@gustavohssouza/mcp-mercadolivre",
   "version": "1.0.0",
-  "description": "MCP server for the Mercado Livre API (seller-focused)",
+  "description": "MCP server for the Mercado Livre API — 42 tools for sellers: listings, orders, shipping, messages, claims, metrics, ads",
   "type": "module",
   "main": "dist/index.js",
+  "bin": {
+    "mcp-mercadolivre": "dist/index.js",
+    "mcp-mercadolivre-auth": "dist/auth-cli.js"
+  },
+  "files": [
+    "dist",
+    "docs",
+    "README.md",
+    "LICENSE"
+  ],
   "scripts": {
     "build": "tsc",
     "start": "node dist/index.js",
-    "auth": "node dist/auth-cli.js"
+    "auth": "node dist/auth-cli.js",
+    "prepublishOnly": "npm run build"
   },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/gustavossouza/mcp_mercadolivre"
+  },
+  "homepage": "https://github.com/gustavossouza/mcp_mercadolivre#readme",
+  "bugs": "https://github.com/gustavossouza/mcp_mercadolivre/issues",
+  "keywords": [
+    "mcp",
+    "mcp-server",
+    "model-context-protocol",
+    "mercado-livre",
+    "mercadolibre",
+    "marketplace",
+    "seller",
+    "claude",
+    "llm",
+    "typescript"
+  ],
+  "author": "Gustavo Santos <gustavohsantos2009@hotmail.com>",
+  "license": "MIT",
   "engines": {
     "node": ">=18"
   },
