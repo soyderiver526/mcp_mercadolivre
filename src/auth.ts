@@ -1,12 +1,17 @@
 import { config } from "./config.js";
 import { loadTokens, saveTokens, type StoredTokens } from "./token-store.js";
 
-const AUTH_URL = "https://auth.mercadolivre.com.br/authorization";
+const AUTH_URL = config.siteId === "MLA"
+  ? "https://auth.mercadolibre.com.ar/authorization"
+  : "https://auth.mercadolivre.com.br/authorization";
 const TOKEN_URL = "https://api.mercadolibre.com/oauth/token";
 const REFRESH_MARGIN_MS = 5 * 60 * 1000;
 
-export function buildAuthUrl(): string {
+export function buildAuthUrl(state: string, codeChallenge: string): string {
   const params = new URLSearchParams({
+    state,
+    code_challenge: codeChallenge,
+    code_challenge_method: "S256",
     response_type: "code",
     client_id: config.clientId,
     redirect_uri: config.redirectUri,
@@ -45,18 +50,30 @@ async function requestToken(
     refresh_token: tr.refresh_token,
     expires_at: Date.now() + tr.expires_in * 1000,
   };
+  if (body.grant_type === "authorization_code" && process.env.ML_OWNER_ID) {
+    const me = await fetch("https://api.mercadolibre.com/users/me", {
+      headers: { Authorization: `Bearer ${tokens.access_token}` },
+    });
+    if (!me.ok) throw new Error("No se pudo verificar la cuenta autorizada.");
+    const account = await me.json() as {id: number; site_id: string};
+    if (String(account.id) !== process.env.ML_OWNER_ID || account.site_id !== config.siteId) {
+      throw new Error("La cuenta autorizada no coincide con el vendedor configurado.");
+    }
+  }
   saveTokens(tokens);
   return tokens;
 }
 
 export async function exchangeCodeForTokens(
-  code: string
+  code: string,
+  codeVerifier: string
 ): Promise<StoredTokens> {
   return requestToken({
     grant_type: "authorization_code",
     client_id: config.clientId,
     client_secret: config.clientSecret,
     code,
+    code_verifier: codeVerifier,
     redirect_uri: config.redirectUri,
   });
 }

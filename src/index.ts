@@ -25,6 +25,7 @@ import {
 } from "./safety.js";
 import { enforceTokenPermissions } from "./token-store.js";
 
+export function createMcpServer() {
 const server = new McpServer({
   name: "mcp-mercadolivre",
   version: "1.0.0",
@@ -2223,6 +2224,11 @@ registerTool(
   }
 );
 
-const transport = new StdioServerTransport();
-await server.connect(transport);
-console.error("MCP Mercado Livre server running on stdio");
+return server;
+}
+
+if (process.env.ML_TRANSPORT !== "http") {
+  const server = createMcpServer();
+  await server.connect(new StdioServerTransport());
+  console.error("MCP Mercado Livre server running on stdio");
+}

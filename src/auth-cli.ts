@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import http from "node:http";
-import { exec } from "node:child_process";
+import { execFile } from "node:child_process";
+import { randomBytes, createHash } from "node:crypto";
 import { buildAuthUrl, exchangeCodeForTokens } from "./auth.js";
 import { config } from "./config.js";
 import { loadTokens } from "./token-store.js";
@@ -16,7 +17,11 @@ if (!config.clientId || !config.clientSecret) {
   process.exit(1);
 }
 
-const authUrl = buildAuthUrl();
+const state = randomBytes(32).toString("base64url");
+const verifier = randomBytes(32).toString("base64url");
+const challenge = createHash("sha256").update(verifier).digest("base64url");
+const authUrl = buildAuthUrl(state, challenge);
+let exchanging = false;
 
 const server = http.createServer((req, res) => {
   const url = new URL(req.url ?? "/", `http://localhost:${PORT}`);
@@ -25,13 +30,19 @@ const server = http.createServer((req, res) => {
     res.end("Not found");
     return;
   }
+  if (url.searchParams.get("state") !== state || exchanging) {
+    res.writeHead(400);
+    res.end("Invalid or already used authorization session.");
+    return;
+  }
   const code = url.searchParams.get("code");
   if (!code) {
     res.writeHead(400, { "Content-Type": "text/plain; charset=utf-8" });
     res.end("Missing 'code' query parameter.");
     return;
   }
-  exchangeCodeForTokens(code)
+  exchanging = true;
+  exchangeCodeForTokens(code, verifier)
     .then(() => {
       res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
       res.end(
@@ -53,7 +64,7 @@ function shutdown(code: number): void {
   setTimeout(() => process.exit(code), 1000).unref();
 }
 
-server.listen(PORT, () => {
+server.listen(PORT, "127.0.0.1", () => {
   const existing = loadTokens();
   if (existing) {
     console.log("Existing tokens found — they will be replaced.");
@@ -67,7 +78,7 @@ server.listen(PORT, () => {
       : process.platform === "win32"
         ? "start"
         : "xdg-open";
-  exec(`${opener} "${authUrl}"`, (err) => {
+  execFile(opener, [authUrl], (err) => {
     if (err) {
       console.log(
         "(Could not open the browser automatically — copy the URL above.)"
