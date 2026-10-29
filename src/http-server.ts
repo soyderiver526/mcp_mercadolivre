@@ -1,11 +1,12 @@
 import express from "express";
-import { randomBytes, createHash } from "node:crypto";
+import { randomBytes, createHash, createCipheriv, createDecipheriv, hkdfSync } from "node:crypto";
 import { mcpAuthRouter } from "@modelcontextprotocol/sdk/server/auth/router.js";
 import { requireBearerAuth } from "@modelcontextprotocol/sdk/server/auth/middleware/bearerAuth.js";
 import { InvalidGrantError, InvalidTokenError, InvalidClientMetadataError, InvalidRequestError } from "@modelcontextprotocol/sdk/server/auth/errors.js";
 import type { OAuthServerProvider, AuthorizationParams } from "@modelcontextprotocol/sdk/server/auth/provider.js";
 import type { OAuthClientInformationFull, OAuthTokens } from "@modelcontextprotocol/sdk/shared/auth.js";
 import type { Response } from "express";
+import { OAuthClientInformationFullSchema } from "@modelcontextprotocol/sdk/shared/auth.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { buildAuthUrl, exchangeCodeForTokens } from "./auth.js";
 import { config } from "./config.js";
@@ -28,7 +29,34 @@ const escapeHtml = (s: string) => s.replace(/[&<>"']/g, c => ({"&":"&amp;","<":"
 type Grant = { client: string; params: AuthorizationParams; expires: number; verifier: string; browser: string; used?: boolean };
 type Ticket = { client: string; challenge: string; redirect: string; expires: number };
 type Access = { client: string; expires: number; family: string };
-const clients = new Map<string, OAuthClientInformationFull>();
+// Registration must survive Render restarts without a paid disk. Client IDs
+// carry authenticated encrypted metadata, never Mercado Libre credentials.
+// Rotating the application secret deliberately invalidates registrations.
+const registrationKey = Buffer.from(hkdfSync(
+  "sha256", process.env.ML_CLIENT_SECRET!, publicUrl.origin,
+  "mcp-client-registration-v1:" + process.env.ML_OWNER_ID, 32,
+));
+function encodeClient(metadata: Record<string, unknown>): string {
+  const iv = randomBytes(12);
+  const cipher = createCipheriv("aes-256-gcm", registrationKey, iv);
+  cipher.setAAD(Buffer.from(resource.href));
+  const ciphertext = Buffer.concat([cipher.update(JSON.stringify(metadata)), cipher.final()]);
+  return "v1." + Buffer.concat([iv, cipher.getAuthTag(), ciphertext]).toString("base64url");
+}
+function decodeClient(id: string): OAuthClientInformationFull | undefined {
+  try {
+    if (!id.startsWith("v1.") || id.length > 12000) return undefined;
+    const raw = Buffer.from(id.slice(3), "base64url");
+    if (raw.length < 29) return undefined;
+    const decipher = createDecipheriv("aes-256-gcm", registrationKey, raw.subarray(0,12));
+    decipher.setAAD(Buffer.from(resource.href));
+    decipher.setAuthTag(raw.subarray(12,28));
+    const json = Buffer.concat([decipher.update(raw.subarray(28)),decipher.final()]).toString("utf8");
+    const client = OAuthClientInformationFullSchema.parse({...JSON.parse(json),client_id:id});
+    if (!client.redirect_uris.length || !client.redirect_uris.every(checkClientRedirect)) return undefined;
+    return client;
+  } catch { return undefined; }
+}
 const pending = new Map<string, Grant>();
 const codes = new Map<string, Ticket>();
 const access = new Map<string, Access>();
@@ -48,14 +76,16 @@ const provider: OAuthServerProvider = {
   // and intentionally omits the verifier when calling exchangeAuthorizationCode.
   skipLocalPkceValidation: true,
   clientsStore: {
-    getClient: id => clients.get(id),
+    getClient: id => decodeClient(id),
     registerClient: metadata => {
       if (!metadata.redirect_uris.length || !metadata.redirect_uris.every(checkClientRedirect)) {
         throw new InvalidClientMetadataError("Solo se permiten redirecciones HTTPS de ChatGPT.");
       }
-      const client = {...metadata, client_id:nonce(), client_id_issued_at:now()};
-      clients.set(client.client_id, client);
-      return client;
+      const record = {...metadata, client_id_issued_at:now(), registration_nonce:nonce()} as Record<string, unknown>;
+      delete record.client_id;
+      const client_id = encodeClient(record);
+      if (client_id.length > 12000) throw new InvalidClientMetadataError("Registro demasiado grande.");
+      return {...metadata,client_id,client_id_issued_at:record.client_id_issued_at as number};
     },
   },
   async authorize(client: OAuthClientInformationFull, params: AuthorizationParams, res: Response) {
