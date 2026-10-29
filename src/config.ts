@@ -55,7 +55,7 @@ export const config = {
   clientId: process.env.ML_CLIENT_ID ?? "",
   clientSecret: process.env.ML_CLIENT_SECRET ?? "",
   siteId: process.env.ML_SITE_ID ?? "MLB",
-  redirectUri: process.env.ML_REDIRECT_URI ?? "http://localhost:3333/callback",
+  redirectUri: process.env.ML_REDIRECT_URI ?? (process.env.RENDER_EXTERNAL_URL ? new URL("/oauth/callback", process.env.RENDER_EXTERNAL_URL).href : "http://localhost:3333/callback"),
   tokensFile: resolveTokensFile(),
   readOnly: ["true", "1"].includes(
     (process.env.ML_READ_ONLY ?? "").toLowerCase()

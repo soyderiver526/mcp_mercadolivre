@@ -8,15 +8,16 @@ import type { OAuthClientInformationFull, OAuthTokens } from "@modelcontextproto
 import type { Response } from "express";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { buildAuthUrl, exchangeCodeForTokens } from "./auth.js";
+import { config } from "./config.js";
 
 process.env.ML_TRANSPORT = "http";
 const { createMcpServer } = await import("./index.js");
-const publicUrl = new URL(process.env.PUBLIC_BASE_URL ?? "");
+const publicUrl = new URL(process.env.PUBLIC_BASE_URL ?? process.env.RENDER_EXTERNAL_URL ?? "");
 if (publicUrl.protocol !== "https:") throw new Error("PUBLIC_BASE_URL debe usar HTTPS.");
 if (!process.env.ML_OWNER_ID || !process.env.ML_CLIENT_ID || !process.env.ML_CLIENT_SECRET) {
   throw new Error("Faltan ML_OWNER_ID, ML_CLIENT_ID o ML_CLIENT_SECRET.");
 }
-if (process.env.ML_REDIRECT_URI !== new URL("/oauth/callback", publicUrl).href) {
+if (config.redirectUri !== new URL("/oauth/callback", publicUrl).href) {
   throw new Error("ML_REDIRECT_URI debe ser PUBLIC_BASE_URL + /oauth/callback.");
 }
 const resource = new URL("/mcp", publicUrl);
