@@ -91,11 +91,11 @@ const provider: OAuthServerProvider = {
   async authorize(client: OAuthClientInformationFull, params: AuthorizationParams, res: Response) {
     if (params.resource && params.resource.href !== resource.href) throw new InvalidRequestError("Recurso incorrecto.");
     if (params.scopes?.some(s => s !== "mcp")) throw new InvalidRequestError("Scope incorrecto.");
-    const state = nonce(), browser = nonce();
-    pending.set(state,{client:client.client_id, params, expires:now()+600, verifier:nonce(), browser:hash(browser)});
-    res.cookie("ml_consent", browser, {httpOnly:true, secure:true, sameSite:"lax", maxAge:600000, path:"/oauth"});
-    res.setHeader("Content-Security-Policy","default-src 'none'; form-action 'self'; frame-ancestors 'none'");
-    res.type("html").send(`<!doctype html><html lang="es"><meta charset="utf-8"><title>Autorizar MCP</title><h1>Conectar Mercado Libre con ChatGPT</h1><p>Cliente: ${escapeHtml(client.client_name ?? "ChatGPT")}.</p><p>Cuenta permitida: ${escapeHtml(process.env.ML_OWNER_ID!)}. Las herramientas ${process.env.ML_READ_ONLY === "true" ? "permiten consultas" : "permiten consultar y modificar publicaciones, responder preguntas y enviar mensajes"}.</p><p>Continuá únicamente si iniciaste esta conexión desde ChatGPT.</p><form action="/oauth/consent" method="post"><input type="hidden" name="state" value="${state}"><button>Continuar a Mercado Libre</button></form></html>`);
+    const state = nonce();
+    pending.set(state,{client:client.client_id, params, expires:now()+600, verifier:nonce(), browser:""});
+    // Establish the consent page in a first-party GET context. Some browsers
+    // do not send Lax cookies on forms rendered directly by a cross-site POST.
+    res.redirect(303, "/oauth/review?session=" + state);
   },
   async challengeForAuthorizationCode(client, code) {
     const t = codes.get(hash(code));
@@ -132,18 +132,37 @@ app.use((_req,res,next) => {res.setHeader("Cache-Control","no-store"); res.setHe
 app.use(express.urlencoded({extended:false,limit:"16kb"}));
 app.use(mcpAuthRouter({provider, issuerUrl:publicUrl, resourceServerUrl:resource, scopesSupported:["mcp"], resourceName:"Mercado Libre Argentina — vendedor"}));
 app.get("/health", (_req,res) => res.json({status:"ok",site:process.env.ML_SITE_ID, authenticated:false}));
+function consentCookie(state: string) { return "ml_consent_" + hash(state).slice(0,24); }
+app.get("/oauth/review", (req,res) => {
+  const state = typeof req.query.session === "string" ? req.query.session : "";
+  const g = pending.get(state);
+  if (!g || g.expires <= now() || g.used) {
+    res.status(400).send("La autorización venció. Volvé a conectar desde ChatGPT. [review-expired]");
+    return;
+  }
+  const browser = nonce();
+  g.browser = hash(browser);
+  res.cookie(consentCookie(state), browser, {httpOnly:true, secure:true, sameSite:"lax", maxAge:600000, path:"/oauth"});
+  res.setHeader("Content-Security-Policy","default-src 'none'; form-action 'self' https://auth.mercadolibre.com.ar https://auth.mercadolivre.com.br; frame-ancestors 'none'; base-uri 'none'");
+  res.type("html").send(`<!doctype html><html lang="es"><meta charset="utf-8"><title>Autorizar MCP</title><h1>Conectar Mercado Libre con ChatGPT</h1><p>Cuenta permitida: ${escapeHtml(process.env.ML_OWNER_ID!)}.</p><p>Las herramientas ${process.env.ML_READ_ONLY === "true" ? "permiten consultas" : "permiten consultar y modificar publicaciones, responder preguntas y enviar mensajes"}.</p><p>Continuá únicamente si iniciaste esta conexión desde ChatGPT.</p><form action="/oauth/consent" method="post"><input type="hidden" name="state" value="${state}"><button>Continuar a Mercado Libre</button></form></html>`);
+});
 app.post("/oauth/consent", (req,res) => {
-  const g = pending.get(String(req.body.state));
-  const cookie = req.headers.cookie?.split(";").map(x=>x.trim()).find(x=>x.startsWith("ml_consent="))?.slice("ml_consent=".length);
+  const state = typeof req.body.state === "string" ? req.body.state : "";
+  const g = pending.get(state);
+  const prefix = consentCookie(state) + "=";
+  const cookie = req.headers.cookie?.split(";").map(x=>x.trim()).find(x=>x.startsWith(prefix))?.slice(prefix.length);
   if (!g || g.expires <= now() || g.used || !cookie || hash(cookie) !== g.browser) {
-    res.status(400).send("Sesión inválida o vencida. Volvé a conectar desde ChatGPT."); return;
+    const reason = !g ? "session-missing" : g.expires <= now() ? "session-expired" : g.used ? "session-used" : !cookie ? "cookie-missing" : "cookie-mismatch";
+    console.error("OAuth consent rejected:", reason);
+    res.status(400).send("No se pudo continuar la sesión. Volvé a conectar desde ChatGPT. [" + reason + "]"); return;
   }
   g.used = true;
   res.redirect(buildAuthUrl(String(req.body.state),hash(g.verifier)));
 });
 app.get("/oauth/callback", async (req,res) => {
   const state = String(req.query.state ?? ""), g = pending.get(state);
-  const cookie = req.headers.cookie?.split(";").map(x=>x.trim()).find(x=>x.startsWith("ml_consent="))?.slice("ml_consent=".length);
+  const prefix = consentCookie(state) + "=";
+  const cookie = req.headers.cookie?.split(";").map(x=>x.trim()).find(x=>x.startsWith(prefix))?.slice(prefix.length);
   if (!g || g.expires <= now() || !g.used || !cookie || hash(cookie) !== g.browser || typeof req.query.code !== "string") {
     res.status(400).send("Autorización inválida o vencida. Reiniciá la conexión desde ChatGPT."); return;
   }
@@ -155,7 +174,7 @@ app.get("/oauth/callback", async (req,res) => {
     const target = new URL(g.params.redirectUri);
     target.searchParams.set("code",code);
     if(g.params.state) target.searchParams.set("state",g.params.state);
-    res.clearCookie("ml_consent",{path:"/oauth",httpOnly:true,secure:true,sameSite:"lax"});
+    res.clearCookie(consentCookie(state),{path:"/oauth",httpOnly:true,secure:true,sameSite:"lax"});
     res.redirect(target.href);
   } catch {
     res.status(400).send("No se pudo autorizar la cuenta configurada. Revisá cuenta, permisos y configuración de la aplicación.");
